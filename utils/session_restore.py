@@ -11,6 +11,7 @@ from xml.sax.saxutils import escape
 from runtime.runtime_context import RECENT_MESSAGES_MAX_PAIRS
 from runtime.frame_memory_utils import get_session_title
 from runtime.anonymous_mode import is_anonymous_session_id
+from utils.tool_results import TOOL_RESULT_KIND_LT
 from utils.chat_log import (
     CHAT_LOG_ROOT,
     _clean_session_id,
@@ -1042,7 +1043,7 @@ def _tool_result_kind(name: str) -> str:
     }:
         return "files"
     if action_name == "UPDATE_LT_FACTS":
-        return "lt"
+        return TOOL_RESULT_KIND_LT
     return ""
 
 
@@ -1132,7 +1133,7 @@ def _parse_restore_tool_results(
         items.append(item)
         offset += 0.001
 
-    return items[-20:]
+    return _keep_latest_lt_result(items)[-20:]
 
 
 def _consume_runtime_tool_result_created_at(
@@ -1652,7 +1653,7 @@ def _build_runtime_event_tool_results(entries: list[dict]) -> list[dict]:
             item["id"] = result_id
         items.append(item)
 
-    return items[-20:]
+    return _keep_latest_lt_result(items)[-20:]
 
 
 def _build_reasoning_lt_fallback_action(
@@ -1695,6 +1696,20 @@ def _build_reasoning_lt_fallback_action(
     return None
 
 
+def _keep_latest_lt_result(items: list) -> list:
+    """Keep the last L-T operation in archive order, including for ID-less archives."""
+    kept = []
+    seen_lt = False
+    for item in reversed(items):
+        if isinstance(item, dict) and item.get("kind") == TOOL_RESULT_KIND_LT:
+            if seen_lt or item.get("absorbed_by"):
+                continue
+            seen_lt = True
+        kept.append(item)
+    kept.reverse()
+    return kept
+
+
 def _merge_restore_tool_results(
     context_results: list[dict],
     runtime_results: list[dict],
@@ -1702,7 +1717,7 @@ def _merge_restore_tool_results(
     merged = []
     keyed_indexes = {}
 
-    for item in [*context_results, *runtime_results]:
+    for item in _keep_latest_lt_result([*context_results, *runtime_results]):
         if not isinstance(item, dict):
             continue
         kind = str(item.get("kind", "") or "").strip().casefold()
@@ -2266,6 +2281,8 @@ def _restore_disk_checkpoint(entries: list[dict]) -> dict:
             color = _latest_runtime_jin_color([entry])
             if color:
                 state["current_jin_color"] = color
+    if isinstance(state.get("tool_results"), list):
+        state["tool_results"] = _keep_latest_lt_result(state["tool_results"])
     return state
 
 

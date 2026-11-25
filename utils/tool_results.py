@@ -376,6 +376,10 @@ def record_runtime_tool_result(
         "runtime_tool_results_turn_count",
         turn_count + 1,
     )
+    if entry["kind"] == TOOL_RESULT_KIND_LT:
+        remove_runtime_tool_results(
+            context, lambda previous: previous is not entry and previous.get("kind") == TOOL_RESULT_KIND_LT
+        )
     from utils.chat_log import append_chat_runtime_event
     append_chat_runtime_event(
         context, event="runtime_tool_result",
@@ -397,6 +401,9 @@ def remove_runtime_tool_results(
         RUNTIME_TOOL_RESULT_CREATED_AT_ATTRIBUTE,
         None,
     )
+    turn_count = int(getattr(context, "runtime_tool_results_turn_count", 0) or 0)
+    current_start = len(tool_results) - turn_count
+    removed_current = 0
     next_tool_results = []
     next_created_ats = []
 
@@ -406,6 +413,8 @@ def remove_runtime_tool_results(
         if predicate(
             entry
         ):
+            if index >= current_start:
+                removed_current += 1
             continue
 
         next_tool_results.append(
@@ -424,6 +433,10 @@ def remove_runtime_tool_results(
                 created_ats[index]
             )
 
+    if len(next_tool_results) == len(tool_results):
+        return
+    context.runtime_tool_results_turn_count = max(0, turn_count - removed_current)
+    context.runtime_tool_results_generation = int(getattr(context, "runtime_tool_results_generation", 0) or 0) + 1
     tool_results[:] = next_tool_results
     if isinstance(
         created_ats,
@@ -651,12 +664,7 @@ def clean_runtime_tool_result(context, tool_id: str) -> bool:
         if kind == result_kind and getattr(context, prefix + "_result", None) == result:
             setattr(context, prefix + "_result", "")
             setattr(context, prefix + "_result_id", "")
-    current_start = len(entries) - int(getattr(context, "runtime_tool_results_turn_count", 0) or 0)
-    was_current = entries.index(target) >= current_start
     remove_runtime_tool_results(context, lambda entry: entry is target)
-    context.runtime_tool_results_generation = int(getattr(context, "runtime_tool_results_generation", 0) or 0) + 1
-    if was_current:
-        context.runtime_tool_results_turn_count = max(0, int(getattr(context, "runtime_tool_results_turn_count", 0) or 0) - 1)
     return True
 
 
