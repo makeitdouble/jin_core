@@ -116,7 +116,11 @@ class BarePrefixActionFallbackTests(unittest.TestCase):
         self.assertEqual(result.text, "hello")
         self.assertEqual(
             result.actions,
-            (RuntimeActionCall(name="ATTACH_FILE_CONTENT", payload="src/main.py"),),
+            (RuntimeActionCall(
+                name="ATTACH_FILE_CONTENT", payload="src/main.py",
+                marker_name="ATTACH_FILE_CONTENT", marker_payload="src/main.py",
+                marker_group="attach_file_content_001",
+            ),),
         )
 
     def test_paired_and_block_actions_do_not_use_bare_prefix_fallback(self):

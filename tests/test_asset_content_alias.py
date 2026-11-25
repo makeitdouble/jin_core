@@ -1,6 +1,6 @@
 import json
 import unittest
-from tests.test_unified_file_attachment import UnifiedFileAttachmentTests
+from tests import test_unified_file_attachment as fixture
 from utils.actions import RuntimeActionCall, RuntimeActionStreamFilter
 from utils import attached_files_store as files
 from tests.test_attach_file_by_path import PNG
@@ -9,9 +9,9 @@ from utils.context.tool_results import build_tool_results_context
 
 
 class AssetContentAliasTests(unittest.TestCase):
-    setUp = UnifiedFileAttachmentTests.setUp
-    execute = UnifiedFileAttachmentTests.execute
-    asset = UnifiedFileAttachmentTests.asset
+    setUp = fixture.UnifiedFileAttachmentTests.setUp
+    execute = fixture.UnifiedFileAttachmentTests.execute
+    asset = fixture.UnifiedFileAttachmentTests.asset
 
     def test_path_range_uses_native_loader_without_skill(self):
         self.context.runtime_loaded_skills = []

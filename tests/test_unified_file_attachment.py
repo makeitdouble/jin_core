@@ -20,10 +20,12 @@ class UnifiedFileAttachmentTests(unittest.TestCase):
     def execute(self, source, message='unified'):
         actions = extract_runtime_actions(source).actions
         self.assertTrue(actions)
-        before = len(self.context.runtime_tool_results)
+        before = {entry.get('tool_id') for entry in self.context.runtime_tool_results}
         with patch('utils.actions.dispatcher.ensure_assets_tree'), patch('utils.chat_log.append_chat_runtime_event'):
-            asyncio.run(apply_runtime_action_calls(self.context, actions, runtime_message_id=f'{message}-{before}'))
-        return self.context.runtime_tool_results[before:]
+            message_id = f'{message}-{self.context.runtime_tool_result_sequence}'
+            asyncio.run(apply_runtime_action_calls(self.context, actions, runtime_message_id=message_id))
+        return [entry for entry in self.context.runtime_tool_results
+                if entry.get('tool_id') and entry['tool_id'] not in before]
 
     def asset(self, operation, **fields):
         return self.execute('<ASSET_ACTION>' + json.dumps({'action': operation, **fields}) + '</ASSET_ACTION>')
@@ -85,6 +87,8 @@ class UnifiedFileAttachmentTests(unittest.TestCase):
         self.context.runtime_attached_file_ids = []
         result = self.asset('ATTACH_FILE_BY_PATH', path='README.md')[0]['result']
         self.assertFalse(result['ok'])
+        self.assertEqual(result['error'], 'invalid_file_reference')
+        self.assertEqual(result['detail'], 'No folder attached')
 
     def test_failed_asset_payload_is_preserved_in_tool_snapshot(self):
         payload = {'action': 'nonexistent_operation', 'paths': ['Photo.PNG']}

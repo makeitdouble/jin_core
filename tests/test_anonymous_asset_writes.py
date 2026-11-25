@@ -1,13 +1,13 @@
 import unittest
-from tests.test_unified_file_attachment import UnifiedFileAttachmentTests
+from tests import test_unified_file_attachment as fixture
 from tests.helpers.runtime_actions import patch_asset_roots
 from runtime.anonymous_mode import configure_runtime_anonymous_mode, runtime_action_write_is_restricted
 
 
 class AnonymousAssetWriteTests(unittest.TestCase):
-    setUp = UnifiedFileAttachmentTests.setUp
-    execute = UnifiedFileAttachmentTests.execute
-    asset = UnifiedFileAttachmentTests.asset
+    setUp = fixture.UnifiedFileAttachmentTests.setUp
+    execute = fixture.UnifiedFileAttachmentTests.execute
+    asset = fixture.UnifiedFileAttachmentTests.asset
 
     def enable_anonymous(self):
         configure_runtime_anonymous_mode(self.context, True)

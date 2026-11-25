@@ -32,11 +32,12 @@ class AttachFileByPathTests(unittest.TestCase):
         actions = extract_runtime_actions('<ASSET_ACTION>' + json.dumps({'action': ACTION, 'paths': payload.split(', ')}) + '</ASSET_ACTION>', enabled_actions=['ASSET_ACTION']).actions
         self.assertTrue(actions)
         start = len(self.context.runtime_session_action_history)
-        before = {e['tool_id'] for e in self.context.runtime_tool_results}
+        before = {e.get('tool_id') for e in self.context.runtime_tool_results}
         with patch('utils.actions.dispatcher.ensure_assets_tree'), patch('utils.chat_log.append_chat_runtime_event'):
             asyncio.run(apply_runtime_action_calls(self.context, actions, runtime_message_id=message))
         upsert_session_action_marker_history_since(self.context, start, [{'name': a.name, 'payload': a.payload} for a in actions])
-        return [e['result'] for e in self.context.runtime_tool_results if e['tool_id'] not in before]
+        return [e['result'] for e in self.context.runtime_tool_results
+                if e.get('tool_id') and e['tool_id'] not in before]
 
     def pair(self, number):
         (self.project / f'Photo_{number}.PNG').write_bytes(PNG)
@@ -88,7 +89,9 @@ class AttachFileByPathTests(unittest.TestCase):
         self.assertEqual(self.context.runtime_tool_results[:2], other_results)
         # Attaching a different group clears old path bytes and history without
         # crashing on results owned by another runtime action.
-        self.assertTrue(all(r['ok'] for r in self.attach(self.pair('036'), 'm2')))
+        second = self.attach(self.pair('036'), 'm2')
+        self.assertEqual(len(second), 2)
+        self.assertTrue(all(r['ok'] for r in second))
         self.assertEqual(self.context.runtime_tool_results[:2], other_results)
         self.assertFalse(first[0]['loaded'])
         self.assertEqual(len(build_brain_user_prompt_content('next', self.context)), 2)

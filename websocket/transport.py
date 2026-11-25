@@ -175,7 +175,10 @@ class RuntimeTransport:
                 sequence = sent + 1
                 payload = self.pending.get(sequence)
                 if payload is not None:
-                    await asyncio.wait_for(websocket.send_text(payload), timeout=10.0)
+                    # Keep cancellation in the sender task when a send finishes
+                    # at the same time as the endpoint closes (Python 3.11).
+                    async with asyncio.timeout(10.0):
+                        await websocket.send_text(payload)
                 sent = sequence
             await self.changed.wait()
 

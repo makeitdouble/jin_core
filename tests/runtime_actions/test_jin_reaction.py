@@ -18,6 +18,7 @@ from utils.actions import (
 )
 from utils.actions.dispatcher import apply_runtime_action_calls
 from utils.context.session_actions import build_session_actions_history_context
+from utils.current_context_window import CurrentContextWindowPrompt
 from utils.session_actions_history import replace_session_action_history_since
 
 
@@ -197,8 +198,8 @@ class RuntimeJinReactionActionTests(unittest.TestCase):
             with patch(
                 "clients.brain_client.prepare_current_context_window_prompt",
                 new=AsyncMock(
-                    return_value=SimpleNamespace(
-                        system_prompt="system",
+                    return_value=CurrentContextWindowPrompt(
+                        system_prompt="system", used_tokens=1, context_window=8192, value="",
                     )
                 ),
             ), patch(

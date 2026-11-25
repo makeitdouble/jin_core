@@ -53,6 +53,28 @@ async def until(predicate):
 
 
 class TransportTests(unittest.IsolatedAsyncioTestCase):
+    async def test_sender_cancellation_at_send_completion(self):
+        socket = Socket()
+        transport = RuntimeTransport(socket)
+        transport.attach(socket)
+        await transport.send_json({"type": "chunk"})
+        send_text = socket.send_text
+
+        async def send_and_cancel(data):
+            await send_text(data)
+            sender.cancel()
+
+        socket.send_text = send_and_cancel
+        sender = asyncio.create_task(transport.deliver(socket))
+        try:
+            done, _ = await asyncio.wait({sender}, timeout=1)
+            self.assertIn(sender, done)
+            self.assertTrue(sender.cancelled())
+            self.assertEqual([event["type"] for event in socket.events], ["chunk"])
+        finally:
+            sender.cancel()
+            await asyncio.gather(sender, return_exceptions=True)
+
     async def test_ack_replay_and_payload_snapshot(self):
         socket = Socket()
         transport = RuntimeTransport(socket)

@@ -5,13 +5,14 @@ from unittest.mock import AsyncMock
 
 from utils.actions import RuntimeActionCall, RuntimeActionStreamFilter
 from utils.actions.dispatcher import apply_runtime_action_calls
+from utils.actions.jin_instance_actions import mark_child_started
 
 
 class AssetInstanceTests(unittest.IsolatedAsyncioTestCase):
     def call(self, **fields):
         return RuntimeActionCall('ASSET_ACTION', json.dumps(dict(action='create_jin_instances', id=1, conditions='Caption first image', **fields)))
 
-    async def test_restricted_parent_creates_once_and_child_cannot_nest(self):
+    async def test_restricted_parent_can_delegate_and_child_can_nest_after_transition(self):
         context = SimpleNamespace(runtime_persistent_writes_restricted=True,
                                   runtime_tool_results=[], runtime_action_events=[],
                                   emitter=SimpleNamespace(emit=AsyncMock()))
@@ -24,7 +25,16 @@ class AssetInstanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(context.runtime_tool_results[-1]['result']['ok'])
         await apply_runtime_action_calls(context, (self.call(),))
         self.assertIs(context.runtime_jin_instance_group, group)
-        self.assertEqual(context.runtime_tool_results[-1]['result']['error'], 'nested_group')
+        blocked = context.runtime_tool_results[-1]['result']
+        self.assertFalse(blocked['ok'])
+        self.assertIn('transitioned', blocked['detail'])
+        mark_child_started(context)
+        await apply_runtime_action_calls(context, (self.call(lt_fact_ids=[]),))
+        nested = context.runtime_jin_instance_group
+        self.assertIsNot(nested, group)
+        self.assertIs(context.runtime_jin_instance_stack[-1], group)
+        self.assertEqual(nested['parent_instance_id'], group['tasks'][0]['subtask_agent_id'])
+        self.assertTrue(context.runtime_tool_results[-1]['result']['ok'])
         self.assertTrue(any(call.args[0].get('status') == 'completed' for call in context.emitter.emit.call_args_list))
 
     async def test_invalid_assignment_uses_native_validation(self):

@@ -151,7 +151,7 @@ def test_text_hydration_and_attachment_context_path(monkeypatch, tmp_path):
     assert "hello utf8" in context
 
 
-def test_attached_files_context_sits_between_tools_and_delayed(monkeypatch, tmp_path):
+def test_attached_files_inventory_precedes_delayed_and_file_body_stays_in_tool_tail(monkeypatch, tmp_path):
     _redirect_store(monkeypatch, tmp_path)
     record, _created, _error = store.store_uploaded_file(
         name="note.txt",
@@ -179,8 +179,8 @@ def test_attached_files_context_sits_between_tools_and_delayed(monkeypatch, tmp_
     assert "<FILE_CONTENT: note.txt >" in prompt
     assert prompt.index("<TOOLS_RESULTS") < prompt.index("<FILE_CONTENT: note.txt >")
     assert prompt.index("<FILE_CONTENT: note.txt >") < prompt.index("</TOOLS_RESULTS>")
-    assert prompt.index("<TOOLS_RESULTS") < prompt.index("<ATTACHED_FILES>")
-    assert prompt.index("<ATTACHED_FILES>") < prompt.index("<DELAYED_MEMORY>")
+    assert prompt.index("<ATTACHED_FILES>") < prompt.index("<DELAYED_MEMORY>") < prompt.index("<TOOLS_RESULTS")
+    assert prompt.rstrip().endswith("</TOOLS_RESULTS>")
 
 
 def test_persistent_attach_result_owns_source_and_unload_keeps_result(monkeypatch, tmp_path):

@@ -9,6 +9,7 @@ PAIRED_ACTION_PAYLOADS = {
     "JIN_POSITION": "x:100px y:200px",
     "JIN_SIZE": "w:120 h:120",
     "JIN_SPEED": "600px/s",
+    "SET_HEARTBEAT_TICK_SPEED": '{"seconds": 600}',
     "POSTING_BOARD": '{"action":"feed"}',
     "SAVE_ACTIVE_MEMORY": '{"conditions":"remember to test"}',
     "DELETE_ACTIVE_MEMORY": "AM-abc123",

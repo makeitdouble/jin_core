@@ -728,9 +728,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
 
                 self.assertEqual(
                     [(action.name, action.payload) for action in result.actions],
-                    [(action_name, expected_payload.casefold()
-                      if action_name == "DELETE_ACTIVE_MEMORY"
-                      else expected_payload)],
+                    [(action_name, expected_payload)],
                 )
 
 

@@ -105,6 +105,9 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
             "JIN_SPEED"
         )
 
+    if bool(runtime_actions.get("CAN_SET_HEARTBEAT_TICK_SPEED", False)):
+        expected_actions.append("SET_HEARTBEAT_TICK_SPEED")
+
     if bool(runtime_actions.get("CAN_UPDATE_LT_FACTS", False)):
         expected_actions.append(
             "UPDATE_LT_FACTS"
@@ -139,8 +142,6 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
             (
                 "LIST_ALL_USER_SHARED_FILES",
                 "ATTACH_FILE_CONTENT",
-                "ATTACH_FILE_BY_ID",
-                "ATTACH_FILE_BY_PATH",
             )
         )
 

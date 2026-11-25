@@ -1458,6 +1458,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             [
                 SUBINSTANCE_INITIAL_TICK_BODY_MESSAGE,
                 "Your current role: sub-instance JIN",
+                "Your task conditions: test",
                 "Your ordinal number: 1",
                 "Your authoritative subtask_agent_id: sub_jin_1_test",
                 "Your authoritative session_id: jin_group_test_session_1",

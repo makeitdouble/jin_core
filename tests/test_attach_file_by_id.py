@@ -51,7 +51,11 @@ class AttachFileByIdTests(unittest.TestCase):
             self.assertTrue(result['ok'])
             label = f'{ACTION}: {record["name"]}'
             self.assertEqual(file_result_summary(result), label)
-            event = [e for e in self.context.emitter.events if e.get('attachment_result')][-1]
+            events = [e for e in self.context.emitter.events if e.get('attachment_results')]
+            self.assertEqual(len(events), 1 if record is text else 2)
+            event = events[-1]
+            self.assertEqual(event['action'], 'asset_action')
+            self.assertEqual(event['attachment_results'], [result])
             self.assertEqual(event['text'], label)
             self.assertEqual(event['status'], 'completed')
             self.assertIn(label, build_session_actions_history_context(self.context))
