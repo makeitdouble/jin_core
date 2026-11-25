@@ -6,6 +6,8 @@ import json
 from collections import OrderedDict
 from uuid import uuid4
 
+from anyio import fail_after
+
 
 RECONNECT_GRACE_SECONDS = 10 * 60
 PAGE_CLOSED_CODE = 4001
@@ -176,8 +178,8 @@ class RuntimeTransport:
                 payload = self.pending.get(sequence)
                 if payload is not None:
                     # Keep cancellation in the sender task when a send finishes
-                    # at the same time as the endpoint closes (Python 3.11).
-                    async with asyncio.timeout(10.0):
+                    # at the same time as the endpoint closes (Python 3.10–3.11).
+                    with fail_after(10.0):
                         await websocket.send_text(payload)
                 sent = sequence
             await self.changed.wait()
