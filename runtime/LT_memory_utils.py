@@ -191,6 +191,10 @@ def infer_lt_jin_note_action(
 
     if explicit_match:
         action = explicit_match.group(1).casefold()
+        if action == "create":
+            # CREATE does not target existing facts. A model may nevertheless
+            # attach an ID; the explicit operation takes precedence.
+            selected_ids = []
     elif not selected_ids:
         action = "create"
     elif len(selected_ids) == 1:
@@ -198,8 +202,6 @@ def infer_lt_jin_note_action(
     else:
         action = "merge"
 
-    if action == "create" and selected_ids:
-        return ""
     if action == "update" and len(selected_ids) != 1:
         return ""
     if action == "merge" and len(selected_ids) < 2:

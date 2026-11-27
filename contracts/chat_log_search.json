@@ -15,7 +15,9 @@
       "<CHAT_LOG_SEARCH>{\"has_attachments\":true,\"start_date\":\"2026-09-01\",\"end_date\":\"2026-09-01\"}</CHAT_LOG_SEARCH>"
     ],
     "rules": [
-      "Use CHAT_LOG_SEARCH to search chat text/attachments by filters! All fields optional."
+      "Use CHAT_LOG_SEARCH to search chat text/attachments by filters! All fields optional.",
+	  "Use CHAT_LOG_SEARCH whenever your current memory is insufficient, uncertain, or contradicts claims about past interactions.",
+      "Always verify relevant past events using the original conversation before drawing conclusions or changing existing memories."
     ]
   }
 }

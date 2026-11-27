@@ -58,6 +58,10 @@ def normalize_update_lt_message(value) -> str:
     return message
 
 
+def _is_explicit_create_message(message: str) -> bool:
+    return bool(re.match(r"^create\b", message, flags=re.IGNORECASE))
+
+
 def scan_update_lt_fact_ids(message: str) -> list[str]:
     fact_ids = []
     seen = set()
@@ -86,7 +90,11 @@ def parse_update_lt_facts_payload(payload: str) -> dict:
             return {}
 
         return {
-            "fact_ids": scan_update_lt_fact_ids(message),
+            "fact_ids": (
+                []
+                if _is_explicit_create_message(message)
+                else scan_update_lt_fact_ids(message)
+            ),
             "message": message,
         }
 
@@ -100,6 +108,9 @@ def parse_update_lt_facts_payload(payload: str) -> dict:
     message = normalize_update_lt_message(value.get("message"))
     if not message:
         return {}
+
+    if _is_explicit_create_message(message):
+        fact_ids = []
 
     return {
         "fact_ids": fact_ids,

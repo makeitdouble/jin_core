@@ -3550,6 +3550,10 @@ async def run_lt_jin_note(
         selected_fact_ids=selected_fact_ids,
         message=message,
     )
+    if requested_action == "create":
+        # A create note must not resolve, validate, or otherwise use model-
+        # supplied IDs. The new fact receives its ID during commit.
+        selected_fact_ids = []
     base_store = clone_lt_store(ensure_runtime_lt_state(context))
     existing_ids = {fact.get("id") for fact in base_store.get("facts", [])}
 

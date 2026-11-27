@@ -101,13 +101,19 @@ def _build_update_lt_tool_result(
     if action:
         summary["action"] = action
 
+    message = str(note.get("message", "") or "").strip()
+    if action.casefold() == "create" or message.casefold().startswith("create"):
+        # IDs attached to CREATE are ignored by runtime normalization and are
+        # never provenance for the newly allocated fact.
+        raw_source_fact_ids = []
+    elif "selected_fact_ids" in change:
+        raw_source_fact_ids = change.get("selected_fact_ids") or []
+    else:
+        raw_source_fact_ids = note.get("fact_ids", []) or []
+
     source_fact_ids = [
         str(item or "").strip()
-        for item in (
-            change.get("selected_fact_ids", [])
-            or note.get("fact_ids", [])
-            or []
-        )
+        for item in raw_source_fact_ids
         if str(item or "").strip()
     ]
     if source_fact_ids:

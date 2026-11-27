@@ -18,7 +18,9 @@
       "<RECALL_FACTS_CONTEXT> F1, F2 </RECALL_FACTS_CONTEXT>"
     ],
     "rules": [
-      "Use this when a relevant fact needs its original evidence."
+      "Use RECALL_FACTS_CONTEXT to retrieve and examine the original evidence behind existing long-term memories.",
+    "Use this tool whenever the accuracy of a relevant memory is uncertain, questioned, or contradicted.",
+    "Compare the original evidence with the new claim before deciding which conclusions are justified."
     ]
   }
 }
