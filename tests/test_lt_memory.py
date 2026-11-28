@@ -1207,19 +1207,11 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
                     "value": "Pending durable fact " + ("detail " * 10),
                     "category": "project_fact",
                 }
-                for index in range(30)
+                for index in range(100)
             ],
             now="2026-08-02T12:00:00Z",
         )
 
-        plan_4k = build_lt_merge_batch_plan(
-            existing_facts=store["facts"],
-            pending_facts=store["pending_facts"],
-            system_prompt=build_lt_merge_system_prompt(),
-            runtime_context_window=4096,
-            requested_max_tokens=32768,
-            runtime_output_reserve=256,
-        )
         plan_8k = build_lt_merge_batch_plan(
             existing_facts=store["facts"],
             pending_facts=store["pending_facts"],
@@ -1228,12 +1220,20 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
             requested_max_tokens=32768,
             runtime_output_reserve=256,
         )
+        plan_16k = build_lt_merge_batch_plan(
+            existing_facts=store["facts"],
+            pending_facts=store["pending_facts"],
+            system_prompt=build_lt_merge_system_prompt(),
+            runtime_context_window=16384,
+            requested_max_tokens=32768,
+            runtime_output_reserve=256,
+        )
 
-        self.assertTrue(plan_4k["fits"])
-        self.assertLess(plan_4k["batch_count"], 30)
-        self.assertLessEqual(plan_4k["estimated_total_tokens"], 4096)
-        self.assertGreater(plan_8k["batch_count"], plan_4k["batch_count"])
-        self.assertEqual(plan_4k["requested_max_output_tokens"], 32768)
+        self.assertTrue(plan_8k["fits"])
+        self.assertLess(plan_8k["batch_count"], 100)
+        self.assertLessEqual(plan_8k["estimated_total_tokens"], 8192)
+        self.assertGreater(plan_16k["batch_count"], plan_8k["batch_count"])
+        self.assertEqual(plan_8k["requested_max_output_tokens"], 32768)
 
     def test_merge_batch_plan_squeezes_only_headroom_to_avoid_fifo_deadlock(self):
         existing_facts = normalize_lt_store({
@@ -1284,7 +1284,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
                     "value": "Durable project fact " + ("detail " * 20),
                     "category": "project_fact",
                 }
-                for index in range(50)
+                for index in range(120)
             ],
         })["facts"]
         store, _ = add_lt_pending_candidates(
@@ -1304,7 +1304,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
             existing_facts=store["facts"],
             pending_facts=store["pending_facts"],
             system_prompt=build_lt_merge_system_prompt(),
-            runtime_context_window=4096,
+            runtime_context_window=8192,
             requested_max_tokens=None,
             runtime_output_reserve=256,
         )
@@ -1313,7 +1313,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(plan["mode"], "halves")
         self.assertEqual(
             [len(batch) for batch in plan["existing_fact_batches"]],
-            [25, 25],
+            [60, 60],
         )
         self.assertGreaterEqual(plan["batch_count"], 1)
         self.assertEqual(len(plan["plans"]), 2)
@@ -1327,7 +1327,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
                     "value": "Durable project fact " + ("detail " * 20),
                     "category": "project_fact",
                 }
-                for index in range(100)
+                for index in range(240)
             ],
         })["facts"]
         store, _ = add_lt_pending_candidates(
@@ -1344,14 +1344,14 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
             existing_facts=store["facts"],
             pending_facts=store["pending_facts"],
             system_prompt=build_lt_merge_system_prompt(),
-            runtime_context_window=4096,
+            runtime_context_window=8192,
             requested_max_tokens=None,
             runtime_output_reserve=256,
         )
 
         self.assertFalse(plan["fits"])
         self.assertEqual(plan["mode"], "paused")
-        self.assertGreater(plan["minimum_required_tokens"], 4096)
+        self.assertGreater(plan["minimum_required_tokens"], 8192)
 
     async def test_merge_uses_two_existing_fact_shards_before_applying(self):
         existing_facts = normalize_lt_store({
@@ -1359,7 +1359,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
                 {
                     "id": f"F{index + 1}",
                     "key": f"topic{index // 10}.item_{index}",
-                    "value": "Durable project fact " + ("detail " * 120),
+                    "value": "Durable project fact " + ("detail " * 310),
                     "category": "project_fact",
                 }
                 for index in range(50)
@@ -1402,7 +1402,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         })
         service_client = FakeServiceClient(
             [scan_response, merge_response],
-            context_window=4096,
+            context_window=8192,
         )
         context = RuntimeContext(
             websocket=None,
@@ -1411,6 +1411,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
             clients={"service": service_client},
         )
         context.runtime_long_term_memory_store = store
+        context.runtime_lt_merge_batch_limit = 2
 
         result = await run_lt_merge_phase(
             context=context,
@@ -1467,7 +1468,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
                 {
                     "id": f"F{index + 1}",
                     "key": f"topic{index // 10}.item_{index}",
-                    "value": "Durable project fact " + ("detail " * 120),
+                    "value": "Durable project fact " + ("detail " * 310),
                     "category": "project_fact",
                 }
                 for index in range(20)
@@ -1520,7 +1521,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         })
         service_client = FakeServiceClient(
             [initial_scan, repaired_scan, merge_response],
-            context_window=4096,
+            context_window=8192,
         )
         context = RuntimeContext(
             websocket=None,
@@ -1557,7 +1558,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
                 {
                     "id": f"F{index + 1}",
                     "key": f"topic{index // 10}.item_{index}",
-                    "value": "Durable project fact " + ("detail " * 120),
+                    "value": "Durable project fact " + ("detail " * 310),
                     "category": "project_fact",
                 }
                 for index in range(20)
@@ -1621,7 +1622,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
                 retry_scan,
                 retry_merge,
             ],
-            context_window=4096,
+            context_window=8192,
         )
         context = RuntimeContext(
             websocket=None,
@@ -1694,7 +1695,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
                 {
                     "id": f"F{index + 1}",
                     "key": f"memory_topic.item_{index}",
-                    "value": "Durable project fact " + ("detail " * 600),
+                    "value": "Durable project fact " + ("detail " * 1600),
                     "category": "project_fact",
                 }
                 for index in range(100)
@@ -1710,7 +1711,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
             now="2026-08-21T12:00:00Z",
         )
         logger = CaptureMemoryLogger()
-        service_client = FakeServiceClient("unused", context_window=4096)
+        service_client = FakeServiceClient("unused", context_window=8192)
         context = RuntimeContext(
             websocket=None,
             emitter=FakeEmitter(),
@@ -1736,7 +1737,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(logger.logs[0]["tag_suffix"], "PAUSED")
         self.assertIn("Not enough context window size", logger.logs[0]["message"])
         self.assertIn("Minimum required:", logger.logs[0]["message"])
-        self.assertIn("Maximum available: 4096", logger.logs[0]["message"])
+        self.assertIn("Maximum available: 8192", logger.logs[0]["message"])
 
     async def test_successful_learned_pending_batch_expands_instead_of_sticking(self):
         store, _ = add_lt_pending_candidates(
@@ -1833,7 +1834,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
             clients={"service": service_client},
         )
         context.runtime_long_term_memory_store = store
-        context.runtime_lt_merge_context_window_tokens = 4096
+        context.runtime_lt_merge_context_window_tokens = 16384
         context.runtime_lt_merge_batch_limit = 1
         context.runtime_lt_merge_last_success_batch_limit = 1
         context.runtime_lt_merge_batch_locked = True
@@ -2949,13 +2950,13 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         class TruncatedReasoningServiceClient:
 
             model_uid = "google/gemma-4-e4b"
-            configured_context_window = 4096
+            configured_context_window = 8192
 
             def __init__(self):
                 self.calls = []
 
             async def resolve_request_context_window(self):
-                return 4096
+                return 8192
 
             async def resolve_safe_max_tokens(
                 self,
@@ -2999,7 +3000,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
                     "usage": {
                         "prompt_tokens": 808,
                         "completion_tokens": 3288,
-                        "total_tokens": 4096,
+                        "total_tokens": 8192,
                     },
                 }
 
@@ -3035,7 +3036,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["assistant_content"], "empty")
         self.assertTrue(result["reasoning_generated"])
         self.assertEqual(result["effective_max_output_tokens"], 3288)
-        self.assertEqual(result["context_window_tokens"], 4096)
+        self.assertEqual(result["context_window_tokens"], 8192)
         self.assertIn("kept the pending facts unchanged", result["summary"])
 
         self.assertEqual(service_client.calls[0]["max_tokens"], 3288)
@@ -4189,7 +4190,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         prompt = build_brain_context(
             context,
             runtime_actions={},
-            user_input="напиши хайку про дождь",
+            user_input="Р Р…Р В°Р С—Р С‘РЎв‚¬Р С‘ РЎвЂ¦Р В°Р в„–Р С”РЎС“ Р С—РЎР‚Р С• Р Т‘Р С•Р В¶Р Т‘РЎРЉ",
             include_runtime_action_instructions=False,
             include_previous_chat_messages=False,
         )
