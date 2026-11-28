@@ -7,7 +7,8 @@ from contracts.rules_assembler import (
     build_runtime_action_contract_instructions,
     runtime_action_emits_followup,
 )
-from runtime.LT_memory_utils import normalize_lt_store
+from runtime.LT_memory_utils import apply_lt_jin_note_result, apply_lt_merge_operations, normalize_lt_store
+from utils.actions.update_lt_facts_utils import parse_update_lt_facts_payload
 from runtime.LT_lane import (
     begin_lt_attempt,
     bind_lt_attempt_task,
@@ -37,6 +38,36 @@ class FakeEmitter:
 
 
 class RuntimeUpdateLTFactsTests(unittest.IsolatedAsyncioTestCase):
+
+    def test_only_structural_ids_are_targets(self):
+        for command, ids in [
+            ("UPDATE F2: The user replaced Nikon F3 with Nikon Z6.", ["F2"]),
+            ("MERGE F1 and F2: Nikon F3", ["F1", "F2"]),
+            ("CREATE F2: Nikon F3", []),
+            ("Remember the Nikon F3", []),
+        ]:
+            with self.subTest(command=command):
+                self.assertEqual(parse_update_lt_facts_payload(command)["fact_ids"], ids)
+        self.assertEqual(parse_update_lt_facts_payload("DELETE F2: Nikon F3"), {})
+
+    def test_create_collisions_enter_and_leave_merge_queue(self):
+        base = {"key": "user.camera", "category": "project_fact", "value": "Uses Nikon"}
+        store = normalize_lt_store({"facts": [{**base, "id": "F1"}]})
+        original = store["facts"].copy()
+        for value in ("Uses Nikon", "Uses Nikon with flash", "Uses Canon", "Uses Canon"):
+            store, change = apply_lt_jin_note_result(
+                store, selected_fact_ids=[], expected_action="create",
+                result={"action": "create", "new_facts": [{**base, "value": value}]},
+            )
+            self.assertTrue(change["valid"], change)
+            self.assertTrue(change["pending_fact_ids"])
+            self.assertEqual(change["added_ids"], [])
+            self.assertEqual(store["facts"], original)
+        self.assertEqual(len(store["pending_facts"]), 3)
+        operations = [{"action": "ignore", "pending_id": row["id"]} for row in store["pending_facts"]]
+        store, _ = apply_lt_merge_operations(store, operations)
+        self.assertEqual(normalize_lt_store(store)["pending_facts"], [])
+        self.assertEqual(store["facts"], original)
 
     def test_marker_parses_focused_note_and_has_no_followup(self):
         result = extract_runtime_actions(

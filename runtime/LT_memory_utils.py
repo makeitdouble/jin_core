@@ -191,6 +191,10 @@ def infer_lt_jin_note_action(
 
     if explicit_match:
         action = explicit_match.group(1).casefold()
+        if action == "create":
+            # CREATE does not target existing facts. A model may nevertheless
+            # attach an ID; the explicit operation takes precedence.
+            selected_ids = []
     elif not selected_ids:
         action = "create"
     elif len(selected_ids) == 1:
@@ -198,8 +202,6 @@ def infer_lt_jin_note_action(
     else:
         action = "merge"
 
-    if action == "create" and selected_ids:
-        return ""
     if action == "update" and len(selected_ids) != 1:
         return ""
     if action == "merge" and len(selected_ids) < 2:
@@ -3474,7 +3476,11 @@ def apply_lt_jin_note_result(
             output_facts.append(replacement)
         replacement_facts.append(replacement)
 
+    pending_candidates = []
     for raw_fact in new_fact_specs:
+        if action == "create" and normalize_lt_key(raw_fact.get("key")) in allocated_keys:
+            pending_candidates.append({**raw_fact, "sources": sources or []})
+            continue
         new_fact, reason = allocate_note_fact(
             raw_fact,
             duplicate_key_reason="new_fact_key_matches_existing_fact",
@@ -3531,9 +3537,15 @@ def apply_lt_jin_note_result(
         "updated_at": current_time,
     }
 
+    pending_ids = []
+    if pending_candidates:
+        next_store, queued = add_lt_pending_candidates(next_store, pending_candidates, now=current_time)
+        pending_ids = queued["added_pending_ids"] + queued["reinforced_pending_ids"]
+
     return next_store, {
         "valid": True,
         "changed": True,
+        "pending_fact_ids": pending_ids,
         "action": action,
         "selected_fact_ids": selected_ids,
         "removed_fact_ids": merged_selected_ids,

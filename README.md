@@ -30,7 +30,7 @@ JIN_LAUNCHER.bat
 
 3. On the first run, the launcher first checks `http://127.0.0.1:1234` for an already running LM Studio server:
    * **If LM Studio is available and exposes models**, JIN immediately creates `config.py` for that endpoint, skips the bundled `llama.cpp` and Gemma downloads, and opens the normal launcher dashboard with the detected models ready to choose. Select the Brain model and press `Enter`.
-   * **If LM Studio is not available**, JIN falls back to the fully self-contained setup: it prepares a private Python 3.12 runtime, downloads and verifies the bundled `llama.cpp` CUDA runtime and default **Gemma 4 E4B Instruct Q4_K_M** model, then creates `config.py`, starts the local Brain/backend, and opens `http://127.0.0.1:8000`.
+   * **If LM Studio is not available**, JIN falls back to the fully self-contained setup: it prepares a private Python 3.12 runtime, downloads and verifies the bundled `llama.cpp` CUDA runtime and default **Unsloth Gemma 4 E4B Instruct QAT UD-Q4_K_XL** model, then creates `config.py`, starts the local Brain/backend, and opens `http://127.0.0.1:8000`.
 
 The launcher shows setup progress directly in its window when the embedded fallback is needed. Internet access is required only for components that are not already available locally. The bundled embedded-Brain path currently targets **Windows x64** and uses the CUDA 12.4 `llama.cpp` build. Other platforms or external OpenAI-compatible model servers can use the manual/custom setup described below.
 
