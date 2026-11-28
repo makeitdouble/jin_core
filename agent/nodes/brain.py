@@ -2079,8 +2079,6 @@ class BrainNode(BaseNode):
             context
         )
 
-        context.runtime_zero_diff_alert = None
-
         runtime_action_event_offset = len(
             getattr(
                 context,

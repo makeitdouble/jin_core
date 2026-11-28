@@ -6,7 +6,6 @@ from .formatting import (
 )
 from .runtime_state import (
     build_runtime_xml,
-    get_conversation_activity_instruction,
 )
 from .skills import (
     _loaded_skill_names,
@@ -63,7 +62,6 @@ __all__ = [
     "format_missing_skill_result",
     "format_session_action_age",
     "format_tool_result_payload",
-    "get_conversation_activity_instruction",
     "strip_actions_history_context",
     "time",
 ]

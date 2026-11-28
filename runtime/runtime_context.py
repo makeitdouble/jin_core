@@ -285,17 +285,9 @@ class RuntimeContext:
     # start at 1, and soft reconnects can resume at any visible FRAME number.
     runtime_memory_display_index_offset: int = 0
 
-    runtime_pattern_counter: int = 0
-
-    runtime_repeated_input_count: int = 0
-
     runtime_frame_diff_history: list[dict] = field(
         default_factory=list
     )
-
-    runtime_zero_diff_alert: dict | None = None
-
-    runtime_conversation_activity_diff: float | None = None
 
     turn_number: int = 0
 
@@ -598,7 +590,6 @@ class ContextContract:
     )
     weekday: str = field(default_factory=lambda: datetime.now().strftime("%A"))
     year: int = field(default_factory=lambda: datetime.now().year)
-    conversation_activity_instruction: str = ""
 
 
     def build_runtime_fields(self) -> str:
@@ -636,11 +627,6 @@ class ContextContract:
             self.current_time,
             self.weekday,
         )
-
-        if self.conversation_activity_instruction:
-            fields["CONVERSATION_ACTIVITY"] = (
-                self.conversation_activity_instruction
-            )
 
         state_fields = [
             format_xml_field(

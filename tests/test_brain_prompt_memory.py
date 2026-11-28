@@ -1299,270 +1299,30 @@ class BrainPromptMemoryTests(
                 runtime_memory,
             )
 
-    def test_brain_prompt_includes_conditional_zero_diff_alert(self):
+    def test_repeated_dialogue_and_legacy_frame_diff_do_not_change_brain_rules(self):
+        context = SimpleNamespace(
+            runtime_memory="topic: greeting",
+            runtime_memory_snapshots=[{"index": 4, "total_diff": 0}],
+            runtime_recent_turns=[
+                {"user": "hello again", "jin": "Hello!"} for _ in range(3)
+            ],
+            runtime_conversation_activity_diff=9.85,
+            runtime_zero_diff_alert={
+                "turn_number": 3,
+                "user_message": "hello again",
+                "assistant_message": "Hello!",
+            },
+            runtime_pattern_counter=2,
+        )
 
-            context = SimpleNamespace(
-                runtime_memory="topic: active loop diagnostics",
-                runtime_l2_memory="",
-                runtime_zero_diff_alert={
-                    "turn_number": 8,
-                    "user_message": "привет",
-                    "assistant_message": "Привет! Чем займемся?",
-                },
-                deep_thought_count=0,
-                runtime_search_result="",
-                runtime_search_result_id="",
-            )
+        prompt = build_brain_context(
+            context=context,
+            runtime_actions={"CAN_WEB_SEARCH": False},
+        )
 
-            prompt = build_brain_context(
-                context=context,
-                runtime_actions={
-                    "CAN_WEB_SEARCH": False,
-                },
-            )
-
-            self.assertIn(
-                "<ZERO_DIFF_STALL_ALERT>",
-                prompt,
-            )
-            self.assertIn(
-                "Do not alarm from this fact alone",
-                prompt,
-            )
-            self.assertNotIn(
-                "soft success rules are intentionally not rendered",
-                prompt,
-            )
-            self.assertIn(
-                "bad rules for this turn",
-                prompt,
-            )
-            self.assertIn(
-                "stop continuing normally and refuse the repeated frame",
-                prompt,
-            )
-            self.assertIn(
-                "Do not try to break the loop by forcing the user",
-                prompt,
-            )
-            self.assertIn(
-                "purpose, task, topic, choice, or next step",
-                prompt,
-            )
-            self.assertIn(
-                "short, pointed, off-angle move",
-                prompt,
-            )
-            self.assertIn(
-                "changes the interaction shape",
-                prompt,
-            )
-            self.assertIn(
-                "same local interaction",
-                prompt,
-            )
-            self.assertIn(
-                "привет",
-                prompt,
-            )
-
-    def test_brain_prompt_includes_conversation_activity(self):
-
-            context = SimpleNamespace(
-                runtime_memory="topic: active loop diagnostics",
-                runtime_l2_memory=(
-                    "possible pattern: repeated greeting loop; Occurrences: 3"
-                ),
-                runtime_conversation_activity_diff=29.85,
-                runtime_zero_diff_alert=None,
-                deep_thought_count=0,
-                runtime_search_result="",
-                runtime_search_result_id="",
-            )
-
-            prompt = build_brain_context(
-                context=context,
-                runtime_actions={
-                    "CAN_WEB_SEARCH": False,
-                },
-            )
-
-            self.assertIn(
-                "<CONVERSATION_ACTIVITY>",
-                prompt,
-            )
-            self.assertLess(
-                prompt.index(
-                    "<USER_DATETIME>"
-                ),
-                prompt.index(
-                    "<CONVERSATION_ACTIVITY>"
-                ),
-            )
-            self.assertLess(
-                prompt.index(
-                    "<CONVERSATION_ACTIVITY>"
-                ),
-                prompt.index(
-                    "</TRUSTED_RUNTIME_VARIABLES>"
-                ),
-            )
-            self.assertNotIn(
-                "<PERCENT>",
-                prompt,
-            )
-            self.assertNotIn(
-                "<INSTRUCTION>",
-                prompt,
-            )
-            self.assertNotIn(
-                "SOURCE_FRAME_DIFF",
-                prompt,
-            )
-            self.assertIn(
-                "LOW activity.",
-                prompt,
-            )
-            self.assertIn(
-                "acting against the expected pattern",
-                prompt,
-            )
-
-    def test_brain_prompt_marks_critical_conversation_activity(self):
-
-            context = SimpleNamespace(
-                runtime_memory="topic: active loop diagnostics",
-                runtime_l2_memory=(
-                    "possible pattern: repeated greeting loop; Occurrences: 4"
-                ),
-                runtime_conversation_activity_diff=9.85,
-                runtime_zero_diff_alert=None,
-                deep_thought_count=0,
-                runtime_search_result="",
-                runtime_search_result_id="",
-            )
-
-            prompt = build_brain_context(
-                context=context,
-                runtime_actions={
-                    "CAN_WEB_SEARCH": False,
-                },
-            )
-
-            self.assertIn(
-                "<CONVERSATION_ACTIVITY>",
-                prompt,
-            )
-            self.assertNotIn(
-                "<PERCENT>",
-                prompt,
-            )
-            self.assertIn(
-                "CRITICAL activity collapse",
-                prompt,
-            )
-            self.assertIn(
-                "current local response rules have failed",
-                prompt,
-            )
-            self.assertIn(
-                "Use a counter-reaction",
-                prompt,
-            )
-            self.assertIn(
-                "Do not force progress or extract a useful request",
-                prompt,
-            )
-
-    def test_brain_prompt_marks_activity_below_twenty_as_critical(self):
-
-            context = SimpleNamespace(
-                runtime_memory="topic: active loop diagnostics",
-                runtime_l2_memory="",
-                runtime_conversation_activity_diff=19,
-                runtime_zero_diff_alert=None,
-                deep_thought_count=0,
-                runtime_search_result="",
-                runtime_search_result_id="",
-            )
-
-            prompt = build_brain_context(
-                context=context,
-                runtime_actions={
-                    "CAN_WEB_SEARCH": False,
-                },
-            )
-
-            self.assertIn(
-                "<CONVERSATION_ACTIVITY>",
-                prompt,
-            )
-            self.assertNotIn(
-                "<PERCENT>",
-                prompt,
-            )
-            self.assertIn(
-                "CRITICAL activity collapse",
-                prompt,
-            )
-
-    def test_brain_prompt_caps_conversation_activity_at_full(self):
-
-            context = SimpleNamespace(
-                runtime_memory="topic: active exchange",
-                runtime_l2_memory="",
-                runtime_conversation_activity_diff=142,
-                runtime_zero_diff_alert=None,
-                deep_thought_count=0,
-                runtime_search_result="",
-                runtime_search_result_id="",
-            )
-
-            prompt = build_brain_context(
-                context=context,
-                runtime_actions={
-                    "CAN_WEB_SEARCH": False,
-                },
-            )
-
-            self.assertNotIn(
-                "<CONVERSATION_ACTIVITY>",
-                prompt,
-            )
-            self.assertNotIn(
-                "SOURCE_FRAME_DIFF",
-                prompt,
-            )
-
-    def test_brain_prompt_uses_recorded_activity_after_l2_clears_pending(self):
-
-            context = SimpleNamespace(
-                runtime_memory="topic: active exchange",
-                runtime_l2_memory=(
-                    "possible pattern: user revisits memory mechanics"
-                ),
-                runtime_l2_pending_patches=[],
-                runtime_memory_snapshots=[
-                    {
-                        "total_diff": 0,
-                    },
-                ],
-                runtime_conversation_activity_diff=150.55,
-                runtime_zero_diff_alert=None,
-                deep_thought_count=0,
-                runtime_search_result="",
-                runtime_search_result_id="",
-            )
-
-            prompt = build_brain_context(
-                context=context,
-                runtime_actions={
-                    "CAN_WEB_SEARCH": False,
-                },
-            )
-
-            self.assertNotIn(
-                "<CONVERSATION_ACTIVITY>",
-                prompt,
-            )
-
+        self.assertIn("topic: greeting", prompt)
+        self.assertIn("<PREVIOUS_CHAT_MESSAGES>", prompt)
+        self.assertEqual(prompt.count("hello again"), 3)
+        self.assertNotIn("<CONVERSATION_ACTIVITY>", prompt)
+        self.assertNotIn("<ZERO_DIFF_STALL_ALERT>", prompt)
+        self.assertNotIn("Must break the input loop", prompt)

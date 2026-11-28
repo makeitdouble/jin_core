@@ -846,49 +846,6 @@ def apply_user_idle_context(
     )
 
 
-def parse_runtime_pattern_counter(
-    value,
-) -> int:
-
-    try:
-        counter = int(
-            value
-            or 0
-        )
-    except (
-        TypeError,
-        ValueError,
-    ):
-        return 0
-
-    return max(
-        0,
-        min(
-            counter,
-            100,
-        ),
-    )
-
-
-def apply_runtime_pattern_context(
-    context,
-    message_data: dict,
-):
-
-    context.runtime_pattern_counter = parse_runtime_pattern_counter(
-        message_data.get(
-            "runtime_pattern_counter",
-            0,
-        )
-    )
-    context.runtime_repeated_input_count = parse_runtime_pattern_counter(
-        message_data.get(
-            "runtime_repeated_input_count",
-            0,
-        )
-    )
-
-
 def apply_runtime_avatar_context(
     context,
     message_data: dict,
@@ -1160,34 +1117,18 @@ def format_runtime_memory_user_message(
     user_text: str,
 ) -> str:
 
-    repeated = parse_runtime_pattern_counter(
-        getattr(
-            context,
-            "runtime_repeated_input_count",
-            0,
-        )
-    )
-
-    if repeated < 2:
-        formatted = user_text
-    else:
-        formatted = (
-            f"{json.dumps(user_text, ensure_ascii=False)} "
-            f"[ repeated: {repeated} ]"
-        )
-
     if getattr(
         context,
         "runtime_user_retry_active",
         False,
     ):
         return (
-            f"{formatted} "
+            f"{user_text} "
             "[ user_retry: true; previous_jin_answer_discarded: true; "
             "replace_previous_turn: true ]"
         ).strip()
 
-    return formatted
+    return user_text
 
 
 async def process_message(
@@ -1420,12 +1361,6 @@ async def process_message(
                 context,
                 message_data,
             )
-
-            if not is_user_retry:
-                apply_runtime_pattern_context(
-                    context,
-                    message_data,
-                )
 
             apply_runtime_avatar_context(
                 context,

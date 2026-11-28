@@ -303,8 +303,6 @@ function buildUserPayloadContextTrace(
   const contextFields = {};
 
   [
-    "runtime_pattern_counter",
-    "runtime_repeated_input_count",
     "user_idle",
     "user_idle_seconds",
     "user_idle_paused",

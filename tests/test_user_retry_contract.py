@@ -109,7 +109,6 @@ class UserRetryContractTests(unittest.TestCase):
         context = SimpleNamespace(
             runtime_user_retry_active=True,
             runtime_user_retry_count=2,
-            runtime_repeated_input_count=0,
         )
         parts = []
 

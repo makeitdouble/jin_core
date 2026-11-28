@@ -66,80 +66,9 @@ function queueChatMicrotask(callback) {
 }
 
 let streamFrameScheduled = false;
-const jinInputLoopState = {
-  previousInput: "",
-  repeatCount: 0,
-};
-
 let jinConversationTurnCounter = 0;
 window.jinConversationTurnCounter =
   jinConversationTurnCounter;
-
-function normalizeJinLoopInput(text) {
-
-  const raw = String(
-    text
-    || ""
-  ).toLowerCase();
-
-  const normalized = raw.normalize
-    ? raw.normalize("NFKC")
-    : raw;
-
-  try {
-    return normalized.replace(
-      /[\p{P}\p{S}\s]+/gu,
-      ""
-    );
-  } catch (error) {
-    return normalized.replace(
-      /[^a-zа-яёіїєґ0-9]+/gi,
-      ""
-    );
-  }
-
-}
-
-function updateJinInputLoopCounter(text) {
-
-  const normalizedInput =
-    normalizeJinLoopInput(
-      text
-    );
-
-  if (!normalizedInput) {
-    jinInputLoopState.previousInput = "";
-    jinInputLoopState.repeatCount = 0;
-
-    return {
-      repeatCount: 0,
-      repeated: 0,
-      normalizedInput: "",
-    };
-  }
-
-  if (
-    normalizedInput
-    === jinInputLoopState.previousInput
-  ) {
-    jinInputLoopState.repeatCount += 1;
-  } else {
-    jinInputLoopState.previousInput = normalizedInput;
-    jinInputLoopState.repeatCount = 0;
-  }
-
-  const repeated =
-    jinInputLoopState.repeatCount > 0
-      ? jinInputLoopState.repeatCount + 1
-      : 0;
-
-  return {
-    repeatCount: jinInputLoopState.repeatCount,
-    repeated,
-    normalizedInput,
-  };
-
-}
 
 /**
  * @typedef {Object} ContextSnapshot
@@ -3500,11 +3429,6 @@ function finishStreamMessage(
   );
 
 }
-window.normalizeJinLoopInput =
-  normalizeJinLoopInput;
-
-window.updateJinInputLoopCounter =
-  updateJinInputLoopCounter;
 window.appendChatMessage =
   appendChatMessage;
 window.clearLatestJinMemoryReferenceText =

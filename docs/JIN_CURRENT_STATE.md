@@ -305,7 +305,7 @@ Current `build_brain_context()` order is intentionally structured. Important anc
 - action/recovery follow-ups likewise move visible dialogue and carried reasoning ahead of `<FOLLOW_UP_RESPONSE_MESSAGE>`, then append failure/recovery/action history/current concerns/tool results and the base prompt without duplicating those continuity blocks;
 - action contracts remain present even on restore ticks, subject to effective capability filtering;
 - `WEB_SEARCH` and `DEEP_WEB_SEARCH` disappear when `settings.CAN_SEARCH` is false;
-- identity and loop rules remain at the bottom of the base prompt.
+- the identity block remains at the bottom of the base prompt.
 
 Any prompt-order change can alter behavior materially. Do not reorder sections for aesthetics.
 

@@ -179,11 +179,10 @@ Ordinary turn:
 6. session action history;
 7. attached-files inventory, then Delayed Memory inventory;
 8. always-present `<SKILLS_LIST>` availability/loaded-state inventory;
-9. runtime-context group: explicit feedback/retry, Active Memory, current `<FRAME_MEMORY_N ...>` snapshot, then `<PREVIOUS_CHAT_MESSAGES>`, visible session counters, loaded Delayed Memory bodies, L-T facts, and any zero-diff alert;
+9. runtime-context group: explicit feedback/retry, Active Memory, current `<FRAME_MEMORY_N ...>` snapshot, then `<PREVIOUS_CHAT_MESSAGES>`, visible session counters, loaded Delayed Memory bodies, and L-T facts;
 10. previous reasoning evidence/loop block when applicable;
 11. runtime-action instructions assembled from current contracts;
-12. identity block;
-13. turn/loop rules.
+12. identity block.
 
 Archived restore priming deliberately moves continuity to the absolute front: inherited `<PREVIOUS_CHAT_MESSAGES>` first, then `<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>` when available, then `<MANDATORY_SYSTEM_NOTIFICATION>`. `<RUNTIME_SETTINGS>` follows that restore preamble, after which the normal concerns/runtime/tool/action scaffolding continues. Restore resource metadata replaces the ordinary attached-file/Delayed inventories, and the ordinary previous-reasoning slot is suppressed because reasoning evidence was already projected at the front.
 

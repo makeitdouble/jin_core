@@ -5,11 +5,9 @@ Allows clean imports:
 """
 
 from .identity import IDENTITY
-from .signal import LOOP_RULES
 
 __all__ = [
     "IDENTITY",
-    "LOOP_RULES",
 ]
 
 

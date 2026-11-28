@@ -19,7 +19,6 @@ class PendingUserBatchTests(unittest.TestCase):
             "active_memory_records": [{"id": "old"}],
             "pending_last_response_rating": "plus",
             "user_idle_seconds": 17,
-            "runtime_pattern_counter": 3,
         }
         appended = [
             {
@@ -49,7 +48,6 @@ class PendingUserBatchTests(unittest.TestCase):
         self.assertEqual(merged["active_memory_records"], [{"id": "new"}])
         self.assertEqual(merged["pending_last_response_rating"], "plus")
         self.assertEqual(merged["user_idle_seconds"], 17)
-        self.assertEqual(merged["runtime_pattern_counter"], 3)
         self.assertNotIn("append_to_pending_batch", merged)
 
     def test_empty_attachment_only_fragments_remain_one_turn(self):

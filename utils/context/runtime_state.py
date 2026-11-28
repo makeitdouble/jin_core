@@ -1,14 +1,9 @@
-# Builds runtime state, feedback, and activity alert context blocks.
+# Builds runtime state context blocks.
 from datetime import datetime
 from app_settings import (
     settings,
 )
-from utils.brain_client_utils import (
-    get_conversation_activity_diff,
-    get_conversation_activity_percent,
-)
 from rules.brain_context_builder import (
-    build_conversation_activity_instruction,
     get_enabled_runtime_actions,
 )
 from contracts.rules_assembler import (
@@ -252,11 +247,6 @@ def build_runtime_xml(
     enabled_actions = get_enabled_runtime_actions(
         runtime_actions
     )
-    conversation_activity_instruction = (
-        get_conversation_activity_instruction(
-            context
-        )
-    )
     now = datetime.now()
 
     return (
@@ -312,37 +302,6 @@ def build_runtime_xml(
             current_time=now.strftime("%H:%M:%S"),
             weekday=now.strftime("%A"),
             year=now.year,
-            conversation_activity_instruction=(
-                conversation_activity_instruction
-            ),
         )
         .to_runtime_xml()
     )
-
-
-
-def get_conversation_activity_instruction(
-    context=None,
-) -> str:
-
-    conversation_activity_diff = get_conversation_activity_diff(
-        context
-    )
-
-    if conversation_activity_diff is None:
-        return ""
-
-    activity_percent = get_conversation_activity_percent(
-        conversation_activity_diff
-    )
-
-    if activity_percent >= 100:
-        return ""
-
-    activity_instruction = build_conversation_activity_instruction(
-        activity_percent
-    )
-
-    return activity_instruction
-
-

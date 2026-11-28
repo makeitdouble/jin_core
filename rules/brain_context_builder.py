@@ -14,8 +14,6 @@ from utils.project_context import (
 from xml.sax.saxutils import escape
 
 from .identity import IDENTITY
-from .signal import LOOP_RULES, EXTREME_LOW_DIFF_RULES, ZERO_DIFF_RULES, \
-    LOW_DIFF_RULES, MIDDLE_DIFF_RULES, NORMAL_DIFF_RULES
 from contracts.rules_assembler import (
     build_runtime_action_instructions,
     get_enabled_runtime_actions as get_contract_enabled_runtime_actions,
@@ -124,34 +122,6 @@ def build_current_runtime_settings_context() -> str:
         f"{content}\n"
         "</RUNTIME_SETTINGS>"
     )
-
-
-def build_loop_rules(
-    context=None,
-) -> str:
-
-    if context is None:
-        return ""
-
-    pattern_counter = getattr(
-        context,
-        "runtime_pattern_counter",
-        0,
-    )
-
-    try:
-        if int(
-            pattern_counter
-        ) > 1:
-            return LOOP_RULES
-    except (
-        TypeError,
-        ValueError,
-    ):
-        return ""
-
-    return ""
-
 
 
 def _append_user_feedback(
@@ -424,77 +394,6 @@ def _append_FRAME_runtime_memory(
         parts.append(
             previous_chat_messages_context
         )
-
-
-def _append_zero_diff_alert(
-    parts: list[str],
-    context=None,
-) -> None:
-
-    from utils.brain_client_utils import (
-        indent_xml,
-    )
-
-    if context is None:
-        return
-
-    zero_diff_alert = getattr(
-        context,
-        "runtime_zero_diff_alert",
-        None,
-    )
-
-    if not zero_diff_alert:
-        return
-
-    alert_user_message = (
-        zero_diff_alert.get(
-            "user_message",
-            "",
-        )
-        if isinstance(
-            zero_diff_alert,
-            dict,
-        )
-        else ""
-    )
-    alert_assistant_message = (
-        zero_diff_alert.get(
-            "assistant_message",
-            "",
-        )
-        if isinstance(
-            zero_diff_alert,
-            dict,
-        )
-        else ""
-    )
-    alert_turn_number = (
-        zero_diff_alert.get(
-            "turn_number",
-            0,
-        )
-        if isinstance(
-            zero_diff_alert,
-            dict,
-        )
-        else 0
-    )
-
-    parts.append(
-        "<ZERO_DIFF_STALL_ALERT>\n"
-        "    <INSTRUCTION>\n"
-        f"        {build_zero_diff_stall_instruction()}\n"
-        "    </INSTRUCTION>\n"
-        f"    <TRIGGER_TURN>{alert_turn_number}</TRIGGER_TURN>\n"
-        "    <TRIGGER_USER_MESSAGE>\n"
-        f"{indent_xml(escape(alert_user_message))}\n"
-        "    </TRIGGER_USER_MESSAGE>\n"
-        "    <TRIGGER_JIN_RESPONSE>\n"
-        f"{indent_xml(escape(alert_assistant_message))}\n"
-        "    </TRIGGER_JIN_RESPONSE>\n"
-        "</ZERO_DIFF_STALL_ALERT>"
-    )
 
 
 def build_delayed_memory_inventory_context(
@@ -1437,12 +1336,6 @@ def build_brain_context(
             long_term_memory_context
         )
 
-    # Zero-diff alert block: warns the brain when a repeated answer stalled.
-    _append_zero_diff_alert(
-        runtime_context_parts,
-        context,
-    )
-
     if runtime_context_parts:
         prompt_parts.append(
             "\n".join(
@@ -1513,44 +1406,6 @@ def build_brain_context(
         IDENTITY
     )
 
-    # Loop rules block: adds turn-specific behavior guidance.
-    prompt_parts.append(
-        build_loop_rules(
-            context
-        )
-    )
-
     return "\n\n".join(
         prompt_parts
     ) + "\n"
-
-
-def build_conversation_activity_instruction(activity_percent: int) -> str:
-    if activity_percent < 20:
-        return (
-           EXTREME_LOW_DIFF_RULES
-        )
-
-    if activity_percent <= 30:
-        return (
-            LOW_DIFF_RULES
-        )
-
-    if activity_percent <= 50:
-        return (
-            MIDDLE_DIFF_RULES
-        )
-
-    if activity_percent < 100:
-        return (
-            NORMAL_DIFF_RULES
-        )
-
-    return ""
-
-
-def build_zero_diff_stall_instruction() -> str:
-    return (
-        ZERO_DIFF_RULES
-    )
-

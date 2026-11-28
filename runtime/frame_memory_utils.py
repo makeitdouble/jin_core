@@ -2959,7 +2959,6 @@ async def record_runtime_frame_diff(
         if patch
         else snapshot.get("total_diff", 0)
     )
-    context.runtime_conversation_activity_diff = total_diff
 
     observed_turns = list(turns or [])
     observed_user_messages = [
@@ -2997,19 +2996,6 @@ async def record_runtime_frame_diff(
         **diff_entry,
         "history_index": len(context.runtime_frame_diff_history),
     })
-
-    if total_diff == 0:
-        latest_turn = (
-            observed_turns[-1]
-            if observed_turns
-            else {}
-        )
-        context.runtime_zero_diff_alert = {
-            "turn_number": user_turn_count,
-            "user_message": latest_turn.get("user_message", ""),
-            "assistant_message": latest_turn.get("assistant_message", ""),
-            "reason": "Previous FRAME memory update produced total_diff 0.",
-        }
 
     await log_memory_event(
         context,
