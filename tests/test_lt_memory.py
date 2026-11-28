@@ -1144,7 +1144,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         prompt = build_lt_extraction_system_prompt()
 
         self.assertIn("`current_interaction_fields`", prompt)
-        self.assertIn("interaction material eligible", prompt)
+        self.assertIn("eligible for extraction", prompt)
         self.assertIn("Committed L-T memory is not included", prompt)
         self.assertIn("merge phase", prompt)
 
