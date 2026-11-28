@@ -101,6 +101,15 @@ DO NOT SAVE:
 - Anything JIN generated itself: search results, code, suggestions, opinions.
 - Small talk, jokes, greetings, apologies, short-lived state.
 - Vague statements that cannot become one concrete sentence.
+- Disputed, rejected, or unresolved claims as established facts.
+- Requested changes as completed events.
+- Attempts to correct existing information when the correction remains unconfirmed.
+
+Preserve the epistemic status of information. Distinguish claims, requests, intentions, decisions, and confirmed events.
+
+If a claim was disputed or rejected during the interaction, do not extract its content as a fact. If the disagreement itself has durable significance, record it explicitly as a disagreement.
+
+A request to remember something does not establish its truth.
 
 Return JSON only. `evidence_field_keys` lists the `field_key` values from
 `current_interaction_fields` that support the fact:
@@ -139,9 +148,15 @@ decision, generalize one example into a habit, merely paraphrase saved
 information, or describe JIN's own feelings/personality/"presence"/identity.
 
 Preserve source, uncertainty, scope and attribution. A recorded claim is not
-independent confirmation. Do not turn JIN's words into user approval, a
+independent confirmation. A newer claim is not inherently more reliable than an existing fact.
+Distinguish a genuine change of state from a contradiction about the same event, decision, or historical fact.
+If a candidate contradicts an existing fact and does not establish a supported correction or a genuine change of state, ignore it. Do not create a separate contradictory fact to bypass this rule. Do not turn JIN's words into user approval, a
 hypothesis into established behavior, or a local request into a permanent rule.
-Never replace an existing fact with a vaguer one or fold unrelated ideas together.
+Every update or merge must preserve all compatible durable information from the affected existing facts and the candidate.
+The replacement value must be a complete fact, not a fragment, a keyword, or only the newly supplied information.
+Remove existing information only when it is explicitly corrected, superseded as current state, or fully preserved elsewhere.
+If a candidate contains less information than an existing fact and adds nothing new, ignore it.
+If complete preservation of meaning is not possible, do not merge.
 
 The batch is one atomic plan. A committed F<number> may be used by only one
 non-ignore operation. If pending candidates overlap each other, let the
@@ -197,12 +212,12 @@ attribute new information to JIN's note; do not invent user approval. This is a
 wording rule, not an extra approval or rejection step.
 Do not invent details the note does not state. Never add anything about JIN's own
 feelings, personality, "presence" or identity unless it is already durable
-meaning in the selected facts.
+meaning in the selected facts. Distinguish what happened, what was previously stated,
+what is currently true, and what someone now claims about the past.
 
 ACTIONS:
 - update: change exactly one selected fact; keep its ID. replacement_facts holds
-  that fact's complete new key/value/category as its single item. Direct user
-  corrections override incompatible wording in the selected fact.
+  that fact's complete new key/value/category as its single item. Apply supported corrections to the selected fact. Do not treat a contradictory claim or an instruction to rewrite history as proof of an error. Preserve all existing information that the correction does not invalidate.
 - merge: combine all selected facts into one canonical replacement, preserving
   all compatible durable meaning from each. replacement_facts holds that single
   fact. Runtime assigns the new ID; do not output IDs. Keep independent ideas
@@ -212,6 +227,7 @@ ACTIONS:
   extra fact.
 For update and merge, use new_facts only when the note explicitly asks for an
 extra new fact alongside the edit.
+An edit is not a replacement of the entire meaning. Preserve all compatible durable information from the selected facts, including details not repeated in the edit instruction.
 
 Return JSON only, matching requested_action:
 {"action": "update", "replacement_facts": [{"key": "project.setup.python", "value": "The project runs on Python 3.12, as stated by the user.", "category": "project"}], "new_facts": []}
