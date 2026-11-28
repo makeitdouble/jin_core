@@ -66,7 +66,14 @@ def scan_update_lt_fact_ids(message: str) -> list[str]:
     fact_ids = []
     seen = set()
 
-    for match in LT_FACT_ID_SCAN_RE.finditer(message):
+    header = re.match(
+        r"^(?:(?:update|merge|delete)\s+)?(?:facts?\s+)?"
+        r"(F[1-9]\d*\b(?:(?:\s*(?:,|&|\+)\s*(?:and\s+)?|\s+(?:and\s+)?)F[1-9]\d*\b)*)",
+        message, re.IGNORECASE,
+    )
+    if not header:
+        return []
+    for match in LT_FACT_ID_SCAN_RE.finditer(header.group(1)):
         fact_id = match.group(0).upper()
         if fact_id in seen:
             continue

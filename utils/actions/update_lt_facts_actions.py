@@ -119,6 +119,9 @@ def _build_update_lt_tool_result(
     if source_fact_ids:
         summary["source_fact_ids"] = source_fact_ids
 
+    if change.get("pending_fact_ids"):
+        summary["pending_fact_ids"] = change["pending_fact_ids"]
+
     output_facts = []
     for key in ("replacement_facts", "new_facts"):
         for fact in change.get(key, []) or []:
