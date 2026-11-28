@@ -18,7 +18,7 @@
     "</UPDATE_LT_FACTS>"
   ],
     "rules": [
-      "Use this marker to update or merge existing L-T facts or create new durable Long-Term facts and respond to user. Respond to user about changes.",
+      "MANDATORY: NEVER use UPDATE_LT_FACTS without a visible textual response to the user. Every CREATE, UPDATE, or MERGE operation MUST be accompanied by a user-facing response explaining what information is being recorded or changed and why. A private action marker alone is NEVER a valid response.",
 "MANDATORY: NEVER invent or assign fact IDs. The system assigns new IDs automatically!",
 	   "Choose one operation per block. Write the fact in concise English, preserve exact names, codes and values, and use exact existing fact IDs for UPDATE and MERGE.",
 "Distinguish a change in current state from a claim that an established past fact was wrong. Update current state when a new event changes it. An explicit revision of the user's current preference, self-report or ordinary decision may update current state, but not the record of an earlier statement or event.",
