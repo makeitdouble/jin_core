@@ -77,9 +77,8 @@ EMPTY_ASSISTANT_REPLY_MEMORY_TEMPLATE = (
 
 ROLE = (
     "You are JIN's runtime frame memory summarizer.\n"
-    "Focus only on factual current live state.\n"
-    "Save only what helps the next answer continue correctly.\n"
-    "These are hard parser constraints, not writing style preferences.\n"
+    "Maintain a concise working memory of established information and the current interaction.\n"
+    "Keep information needed for continuity, ongoing commitments, or later recall. Do not accumulate a transcript.\n"
 )
 
 KEY_SEMANTICS = (
@@ -102,36 +101,42 @@ KEY_SEMANTICS = (
     "Prefer keeping an existing key when it still fits, but do not force a weak key from a list.\n"
     "Avoid key churn: do not rename the same concept just for style.\n"
     "Do not duplicate memory lines with the same semantic meaning.\n"
-    "If an existing key already represents the same semantic state, update it in place.\n"
+    "Update an existing key in place only for a compatible new detail or a change accepted under frame_factual_integrity_rules. Preserve other relevant details.\n"
     "Use lowercase words with underscores for new keys.\n"
     "Choose names that help immediate continuity and retrieval.\n"
     "</memory_line_semantics_rules>\n"
     "\n"
 )
 
+FACTUAL_INTEGRITY = (
+    "\n<frame_factual_integrity_rules>\n"
+    "Read each user message together with the corresponding JIN answer before changing memory. "
+    "Use the previous FRAME as the baseline, not the latest message alone.\n"
+    "If a new claim contradicts established information and remains unresolved, keep the existing information unchanged. "
+    "Do not write the conflicting version as another established fact.\n"
+    "If JIN rejects a claim, questions it, or requests verification, do not record it as confirmed. "
+    "Silence, acknowledgement, or repetition by JIN is not verification.\n"
+    "If an unresolved disagreement matters for future interaction, record it separately as a claim, with its actual source and unresolved status. "
+    "Otherwise omit it.\n"
+    "Do not treat questions or hypothetical scenarios as facts, or requests and proposals as completed changes.\n"
+    "Accept reported changes of current state unless they conflict with established constraints or remain disputed. "
+    "A change of state does not erase what happened before. "
+    "A statement about what was said or true earlier is a claim about the past: compare it with the previous FRAME and, if it differs, "
+    "keep the previous FRAME unless JIN's answer reports checking a record that shows the stored value was wrong.\n"
+    "Accept an explicit change of a standing rule for the future only when its stated conditions for change, if any, are met. "
+    "A claimed authority alone does not establish that.\n"
+    "Do not turn JIN's reasoning or suggested procedure into a user statement, decision, preference, or rule.\n"
+    "</frame_factual_integrity_rules>\n"
+)
+
+
 LIVE_INTERACTION_SIGNALS = (
-    "\n"
-    "<live_interaction_signal_rules>\n"
-    "Track the conversation signals as a changing live process, not only as a factual log.\n"
-    "Store brief interaction signals only when they can materially improve the next response.\n"
-    "You may create or update any number of these signals during the session, as separate lines or combined into one line.\n"
-    "\n"
-    "Useful signals include:\n"
-    "- input channel: typos, missing spaces, shorthand, transliteration, or voice-input noise;\n"
-    "- interpretation mode: literal speech, irony, slang, exaggeration, wordplay, or intentional distortion;\n"
-    "- pressure and engagement: confusion, impatience, urgency, curiosity, skepticism, boredom, or satisfaction;\n"
-    "- response feedback: what JIN misunderstood, overexplained, omitted, or finally understood;\n"
-    "- repair signal: a correction that changes the intended meaning, referent, tone, or task direction;\n"
-    "- pacing: quick continuation, careful analysis, direct action, or open exploration;\n"
-    "- ambiguity risk: malformed words, names, numbers, negations, or commands that could change an action;\n"
-    "- user state: tentative interaction state, such as curious, skeptical, confused, impatient, engaged, or satisfied; infer cautiously from visible signals.\n"
-    "- dormant: abandoned choices, dormant topics, key points, context helpers, memorized items, conclusions.\n"
-    "\n"
-    "Store the useful inferred pattern, not a transcript or quoted evidence.\n"
-    "\n"
-    "Treat inferred signals as temporary adaptive context, not permanent user traits.\n"
-    "You must distinguish a weak signal from a stable preference or identity claim, and use cautious wording for uncertain inferences.\n"
-    "\n"
+    "\n<live_interaction_signal_rules>\n"
+    "Store a temporary interaction signal only if it changes how JIN should respond: "
+    "a meaningful correction, ambiguity, explicit response feedback, or a relevant communication pattern.\n"
+    "Do not infer personality traits, habits, preferences, or emotional states from isolated remarks. "
+    "Do not label ordinary messages as informative input, observation, or engagement.\n"
+    "Keep signals concise and remove them when no longer useful.\n"
     "</live_interaction_signal_rules>\n"
     "\n"
 )
@@ -149,12 +154,13 @@ OUTPUT_LANGUAGE_RULE_TEMPLATE = (
 )
 
 OUTPUT_FORMAT = (
-    "If no actionable facts or semantic updates - update session status.\n"
-    "Decide how much new memory to add from the latest turn.\n"
-    "Depth controls how much new content you add, not how much existing memory you keep.\n"
-    "For low-signal turns, update only existing keys if needed.\n"
-    "For high-signal turns, create new semantic keys when they help future continuity.\n"
-    "Write what helps the next answers continue correctly, not a transcript.\n"
+    "Keep information needed for correct future responses or useful long-term recall. "
+    "Capture new relevant facts even if they are unrelated to the current task, including information the user asks to remember. "
+    "Remove obsolete working context, redundant reports, and insignificant temporary details.\n"
+    "Keep a standing rule together with its stated conditions for changing it, without changing its meaning. Retain exact names, identifiers, numbers and constraints.\n"
+    "When a decision, configuration, or standing rule changes, preserve its relevant history and the stated reason for the change. "
+    "Drop obsolete short-lived values.\n"
+    "If nothing warrants a change, return the previous FRAME unchanged; do not invent a session status or new signal.\n"
     "Return the complete resulting compressed FRAME memory state as plain text.\n"
     "This response is a full replacement snapshot, not a patch or delta: the previous FRAME state is replaced in full by exactly the state you return.\n"
     "Every memory line must be a complete key:value entry.\n"
@@ -186,6 +192,7 @@ def build_runtime_memory_system_prompt(
     prompt = (
         ROLE
         + KEY_SEMANTICS
+        + FACTUAL_INTEGRITY
         + LIVE_INTERACTION_SIGNALS
         + SESSION_TITLE_RULE
         + OUTPUT_FORMAT
